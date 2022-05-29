@@ -1,0 +1,117 @@
+## HiSSE for Mutualism Evolution Models
+setOption("useScaling", "true")
+
+## setwd
+
+## parameters
+NUM_STATES            = 2
+NUM_HIDDEN            = 2
+NUM_RATES             = NUM_STATES * NUM_HIDDEN
+H                     = 0.587405
+
+## move index
+mvi = 0
+mni = 0
+
+## load data
+observed_phylogeny <- readTrees("file_name")[1]
+data <- readCharacterData("file_name.nex")
+
+## retreive taxa information from data
+taxa <- observed_phylogeny.taxa()
+
+## prior
+rate_mean <- ln( ln(observed_phylogeny.ntips()/2.0) / observed_phylogeny.rootAge() )
+rate_sd <- 2*H
+
+## lognormal distributed variable for diversification and turnover
+for (i in 1:NUM_STATES) {
+  speciation_alpha[i] ~ dnNormal(mean=rate_mean,sd=rate_sd)
+  moves[++mvi] = mvSlide(speciation_alpha[i],delta=0.20,tune=true,weight=3.0)
+
+  extinction_alpha[i] ~ dnNormal(mean=rate_mean,sd=rate_sd)
+  moves[++mvi] = mvSlide(extinction_alpha[i],delta=0.20,tune=true,weight=3.0)
+
+}
+
+## exponential distributed variable for diversification and normal distributed variable for turnover
+for (i in 1:NUM_HIDDEN) {
+  speciation_beta[i] ~ dnExp(1.0)
+  moves[++mvi] = mvSlide(speciation_beta[i],delta=0.20,tune=true,weight=2.0)
+  
+  extinction_beta[i] ~ dnNormal(0.0,1.0)
+  moves[++mvi] = mvSlide(extinction_beta[i],delta=0.20,tune=true,weight=2.0)
+  
+}
+
+for (j in 1:NUM_HIDDEN) {
+  for (i in 1:NUM_STATES) {
+    if ( j == 1) {
+      speciation[i] := exp( speciation_alpha[i] )
+      extinction[i] := exp( extinction_alpha[i] )
+    } else {
+      index = i+(j*NUM_STATES)-NUM_STATES
+      speciation[index] := speciation[index-NUM_STATES] * exp( speciation_beta[j-1] )
+      extinction[index] := exp( extinction_alpha[i] + extinction_beta[j-1] )
+    }
+  }
+}
+
+## set up rates
+rate_pr := observed_phylogeny.treeLength() / 10
+rate_12 ~ dnExponential(rate_pr) ## non-mututalist to mutualist
+rate_21 ~ dnExponential(rate_pr) ## mutualist to non-mutualist
+
+moves[++mvi] = mvScale( rate_12, weight=2 )
+moves[++mvi] = mvScale( rate_21, weight=2 )
+
+Q := [ rate_12, rate_21 ]
+
+hidden_rate ~ dnExponential(rate_pr)
+moves[++mvi] = mvScale(hidden_rate,lambda=0.2,tune=true,weight=5)
+
+for (i in 1:(NUM_HIDDEN * (NUM_HIDDEN - 1))) {
+  R[i] := hidden_rate
+}
+
+rate_matrix := fnHiddenStateRateMatrix(Q, R, rescaled=false)
+
+rate_category_prior ~ dnDirichlet( rep(1,NUM_RATES) )
+moves[++mvi] = mvDirichletSimplex(rate_category_prior,tune=true,weight=2)
+moves[++mvi] = mvBetaSimplex(rate_category_prior,tune=true,weight=2)
+
+## fix parameter for the age of the root
+root <- observed_phylogeny.rootAge()
+
+rho <- observed_phylogeny.ntips()/observed_phylogeny.ntips()
+
+## variable for the tree
+timetree ~ dnCDBDP( rootAge = root,
+                     speciationRates   = speciation,
+                     extinctionRates   = extinction,
+                     Q                 = rate_matrix,
+                     pi                = rate_category_prior,
+                     delta             = 1.0,
+                     rho               = rho)
+
+
+## clamp the model with the tree and data
+timetree.clamp( observed_phylogeny )
+data_exp <- data.expandCharacters( NUM_HIDDEN )
+timetree.clampCharData( data_exp )
+
+## model and monitors including simmap
+mymodel = model(rate_matrix)
+monitors[++mni] = mnModel(filename="1_HiSSE.log", printgen=1)
+monitors[++mni] = mnStochasticCharacterMap(cdbdp=timetree, printgen=1, filename="1_HiSSE_simmap.log", include_simmap=true)
+
+monitors[++mni] = mnScreen(printgen=10, speciation,extinction)
+
+## mcmc
+mymcmc = mcmc(mymodel, monitors, moves, nruns=1, moveschedule="random")
+mymcmc.burnin(generations=1000,tuningInterval=100)
+mymcmc.run(generations=10000)
+
+## load simmap data and build simmap tree
+anc_states1 = readAncestralStateTrace("1_HiSSE_simmap.log")
+anc_tree1 = characterMapTree(tree=observed_phylogeny,ancestral_state_trace_vector=anc_states1, character_file="1_HiSSE_simmap.log_character.tree", posterior_file="1_HiSSE_simmap.log_posterior.tree", burnin = 1000, reconstruction="marginal")
