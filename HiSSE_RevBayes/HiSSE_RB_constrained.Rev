@@ -1,4 +1,5 @@
 ## HiSSE for Mutualism Evolution Models
+## using a constrained extinction rate following the methods of Zenil-Ferguson et al., 2021
 setOption("useScaling", "true")
 
 ## setwd
