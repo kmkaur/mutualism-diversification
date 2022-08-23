@@ -51,15 +51,12 @@ path_retrieve <- function(tip_number, edge, root_number){
 # tips as vector
 path_vec <- Vectorize(FUN = path_retrieve, vectorize.args = "tip_number")
 
-
-
 ## NOTE: The following functions are from Käfer and Mousset, 2014 Dryad Repository, with some edits.
 # https://doi.org/10.5061/dryad.jd8vg
 # Input for the Käfer and Mousset, 2014 paper requires a data table with two columns,
 # the first column is 'd' or the number in the derived state (1 in our case) and
 # the second column is "m" or the total number in the clade (0's + 1s).
 # Each row represents a sister pair.
-# Important -
 
 ## Conditional probability of having S>=s given M=m and K=k
 PSmk <- Vectorize(function(s, m, k) {
@@ -145,10 +142,9 @@ scc.test <- function(dataset, iter=10000, alternative="two.sided") {
     return(scc)
 }
 
-
 ##### Load Data #####
 tree <- read.tree(file="tree_file")
-data <- read.csv(file="traits_file)
+data <- read.csv(file="traits_file")
 
 #match data and order
 to_remove <- setdiff(data$species,tree$tip.label)
